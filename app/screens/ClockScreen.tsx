@@ -1,93 +1,113 @@
+import axios from 'axios';
 import * as Location from 'expo-location';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, Button, Dimensions, StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { Alert, Button, Dimensions, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
+import { useUser } from '../../app/contexts/UserContext';
+import BACKEND_URL from '../../config/backend';
 
-const { width, height } = Dimensions.get('window');
+const mockStock = [
+  { id: '1', name: 'Parts A', partNumber: 'WA-1001', quantity: 12 },
+  { id: '2', name: 'Parts B', partNumber: 'GB-2002', quantity: 7 },
+  { id: '3', name: 'Component C', partNumber: 'CC-3003', quantity: 25 },
+  { id: '4', name: 'Module D', partNumber: 'MD-4004', quantity: 3 },
+];
 
-interface ClockScreenProps {
-  userId: number;
-  userName: string;
-}
-
-export default function ClockScreen({ userId, userName }: ClockScreenProps) {
-  const [log, setLog] = useState<string>('');
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [timestamp, setTimestamp] = useState<string>('');
-
-  const BACKEND_URL = 'http://192.168.0.185:8081'; // <-- replace with your computer's LAN IP
+export default function ClockScreen() {
+  const { user, setUser } = useUser();
+  const [clockedIn, setClockedIn] = useState(false);
+  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [showPortal, setShowPortal] = useState(false);
+  const router = useRouter();
 
   const handleClockIn = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (!user) return;
+
+    let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Location permission is required.');
+      Alert.alert('Permission denied', 'Location permission is required to clock in.');
       return;
     }
 
-    const currentLocation = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.High,
-    });
+    let loc = await Location.getCurrentPositionAsync({});
+    const { latitude, longitude } = loc.coords;
+    setLocation({ latitude, longitude });
 
-    const currentTime = new Date().toISOString();
-
-    setLocation(currentLocation);
-    setTimestamp(currentTime);
-    setLog('Clock-in recorded');
-
-    // Send to backend
     try {
-      const res = await fetch(`${BACKEND_URL}/api/clock-in`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          timestamp: currentTime,
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-        }),
-      });
+      await axios.post(`${BACKEND_URL}/api/clock-in`, {
+        userId: user.userId,
+        clockedInTime: new Date().toISOString(),
+        latitude,
+        longitude,
+      }, { timeout: 5000 });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
-
+      setClockedIn(true);
       Alert.alert('Success', 'Clock-in recorded!');
     } catch (err: any) {
-      Alert.alert('Error', err.message);
+      Alert.alert('Error', 'Could not clock in.');
+      console.error(err);
     }
   };
 
+  const handleLogout = () => {
+    setUser(null);
+    router.replace('/'); // Navigates back to login
+  };
+
+  if (showPortal) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Stock Portal</Text>
+        <FlatList
+          data={mockStock}
+          keyExtractor={item => item.id}
+          numColumns={2}
+          columnWrapperStyle={{ justifyContent: 'space-between' }}
+          renderItem={({ item }) => (
+            <View style={styles.stockCard}>
+              <Text style={styles.stockName}>{item.name}</Text>
+              <Text style={styles.stockInfo}>Part #: {item.partNumber}</Text>
+              <Text style={styles.stockInfo}>Qty: {item.quantity}</Text>
+            </View>
+          )}
+        />
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Text style={styles.logoutButtonText}>Log Out</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Welcome, {userName}</Text>
-      <Button title="Clock In" onPress={handleClockIn} />
-
-      {log && location && (
+      <Text style={styles.title}>Welcome, {user?.userName}</Text>
+      <Button
+        title={clockedIn ? 'Clocked In' : 'Clock In'}
+        onPress={handleClockIn}
+        disabled={clockedIn}
+      />
+      {clockedIn && location && (
         <>
-          <View style={styles.logBox}>
-            <Text style={styles.logText}>📍 {log}</Text>
-            <Text style={styles.logText}>🕒 Time: {timestamp}</Text>
-            <Text style={styles.logText}>🌐 Latitude: {location.coords.latitude}</Text>
-            <Text style={styles.logText}>🌐 Longitude: {location.coords.longitude}</Text>
-          </View>
-
-          <MapView
-            provider={PROVIDER_GOOGLE}
-            style={styles.map}
-            region={{
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
-              latitudeDelta: 0.005,
-              longitudeDelta: 0.005,
-            }}
-          >
-            <Marker
-              coordinate={{
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
+          <View style={styles.mapContainer}>
+            <MapView
+              style={styles.map}
+              initialRegion={{
+                latitude: location.latitude,
+                longitude: location.longitude,
+                latitudeDelta: 0.005,
+                longitudeDelta: 0.005,
               }}
-              title="You are here"
-            />
-          </MapView>
+            >
+              <Marker coordinate={location} title="You are here" />
+            </MapView>
+          </View>
+          <TouchableOpacity style={styles.portalButton} onPress={() => setShowPortal(true)}>
+            <Text style={styles.portalButtonText}>Continue to Portal</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutButtonText}>Log Out</Text>
+          </TouchableOpacity>
         </>
       )}
     </View>
@@ -95,23 +115,68 @@ export default function ClockScreen({ userId, userName }: ClockScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', padding: 20, paddingTop: 60 },
-  title: { fontSize: 28, marginBottom: 20 },
-  logBox: {
-    marginTop: 20,
-    padding: 16,
-    borderRadius: 8,
-    backgroundColor: '#f0f0f0',
-    width: '100%',
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
-  logText: {
-    fontSize: 16,
-    marginBottom: 6,
+  title: { fontSize: 24, marginBottom: 20, color: '#000' },
+  mapContainer: {
+    marginTop: 30,
+    width: Dimensions.get('window').width - 40,
+    height: 250,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#0077b6',
   },
   map: {
-    marginTop: 20,
-    width: width - 40,
-    height: height / 3,
+    flex: 1,
+  },
+  portalButton: {
+    marginTop: 24,
+    backgroundColor: '#0077b6',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+  },
+  portalButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  stockCard: {
+    backgroundColor: '#E6F4FE',
     borderRadius: 10,
+    padding: 16,
+    margin: 8,
+    width: (Dimensions.get('window').width - 80) / 2,
+    alignItems: 'center',
+    elevation: 2,
+  },
+  stockName: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginBottom: 6,
+    color: '#0077b6',
+  },
+  stockInfo: {
+    color: '#333',
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  logoutButton: {
+    marginTop: 24,
+    backgroundColor: '#e63946',
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+  },
+  logoutButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

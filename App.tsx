@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ClockScreen from './app/screens/ClockScreen';
 import LoginScreen from './app/screens/LoginScreen';
@@ -13,13 +14,20 @@ export default function App() {
   };
 
   return (
-<SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
-  {user ? (
-    <ClockScreen userId={user.userId} userName={user.userName} />
-  ) : (
-    <LoginScreen onLogin={handleLogin} />
-  )}
-</SafeAreaView>
-
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      {user ? (
+        <ClockScreen userId={user.userId} userName={user.userName} />
+      ) : (
+        <LoginScreen onLogin={handleLogin} />
+      )}
+    </SafeAreaView>
   );
 }
+
+// --- Styles ---
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff', // White background
+  },
+});

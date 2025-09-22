@@ -1,26 +1,19 @@
-import * as Crypto from 'expo-crypto';
+import { useNavigation } from '@react-navigation/native';
+import axios from 'axios';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useUser } from '../../app/contexts/UserContext';
+import BACKEND_URL from '../../config/backend'; // <- path outside app/
 
-interface LoginScreenProps {
-  onLogin: (userId: number, userName: string) => void; // callback when login succeeds
-}
-
-export default function LoginScreen({ onLogin }: LoginScreenProps) {
+export default function LoginScreen() {
+  const router = useRouter();
+  const navigation = useNavigation();
+  const { setUser } = useUser();
   const [isRegister, setIsRegister] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  const BACKEND_URL = 'http://192.168.0.185:8081'; // <-- replace with your computer's LAN IP
-
-  // SHA256 hash function
-  const hashPassword = async (pw: string) => {
-    return await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      pw
-    );
-  };
 
   const handleSubmit = async () => {
     if (!email || !password || (isRegister && !name)) {
@@ -28,48 +21,42 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
       return;
     }
 
-    const passwordHash = await hashPassword(password);
+    try {
+      const endpoint = isRegister ? '/api/register' : '/api/login';
+      const payload = isRegister
+        ? { name, email, passwordHash: password }
+        : { email, passwordHash: password };
 
-    if (isRegister) {
-      // Register new user
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, passwordHash }),
-        });
+      const response = await axios.post(`${BACKEND_URL}${endpoint}`, payload, {
+        timeout: 5000,
+      });
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message);
-
+      if (isRegister) {
         Alert.alert('Success', 'Account created! Please log in.');
         setIsRegister(false);
         setPassword('');
-      } catch (err: any) {
+      } else {
+        setUser({ userId: response.data.userId, userName: response.data.userName });
+        router.replace('/ClockScreen'); // <-- Expo Router navigation
+      }
+    } catch (err: any) {
+      if (err.response) {
+        // Backend returned a response
+        Alert.alert('Error', err.response.data.message || 'Server error');
+      } else if (err.request) {
+        // Request was made but no response
+        Alert.alert('Error', 'No response from server. Check your network.');
+      } else {
+        // Something else
         Alert.alert('Error', err.message);
       }
-    } else {
-      // Login existing user
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, passwordHash }),
-        });
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message);
-
-        onLogin(data.userId, data.userName);
-      } catch (err: any) {
-        Alert.alert('Error', err.message);
-      }
+      console.error(err);
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{isRegister ? 'Register' : 'Worker Login'}</Text>
+      <Text style={styles.title}>{isRegister ? 'Register' : 'Login'}</Text>
 
       {isRegister && (
         <TextInput
@@ -86,6 +73,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
+        keyboardType="email-address"
       />
 
       <TextInput
@@ -106,13 +94,15 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 20 },
-  title: { fontSize: 24, marginBottom: 20, textAlign: 'center' },
+  container: { flex: 1, justifyContent: 'center', padding: 20, backgroundColor: '#fff' },
+  title: { fontSize: 24, marginBottom: 20, textAlign: 'center', color: '#000' },
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
     padding: 10,
     marginBottom: 12,
     borderRadius: 6,
+    color: '#000',
+    backgroundColor: '#fff',
   },
 });
