@@ -1,10 +1,11 @@
 import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Button, Image, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useUser } from '../../app/contexts/UserContext';
-import BACKEND_URL from '../../config/backend'; // <- path outside app/
+import BACKEND_URL from '../../config/backend';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -14,6 +15,67 @@ export default function LoginScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [userExists, setUserExists] = useState(false);
+  const [hasPhoto, setHasPhoto] = useState(false);
+  const [photo, setPhoto] = useState<string | null>(null);
+
+  // Check if user exists and has a photo
+  const checkUser = async () => {
+    if (!email || !password) {
+      setUserExists(false);
+      setHasPhoto(false);
+      return;
+    }
+    try {
+      const response = await axios.post(`${BACKEND_URL}/api/check-user`, { email, passwordHash: password });
+      setUserExists(response.data.exists);
+      // Do NOT set hasPhoto here
+      if (response.data.photo) setPhoto(response.data.photo);
+    } catch (err) {
+      setUserExists(false);
+      setHasPhoto(false);
+    }
+  };
+
+  React.useEffect(() => {
+    checkUser();
+  }, [email, password]);
+
+  const handleAddPhoto = async () => {
+    let result = await ImagePicker.launchCameraAsync({
+      allowsEditing: false,
+      base64: true,
+      quality: 0.5, // Compress image to 50% quality
+    });
+    if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+    setPhoto(result.assets[0].base64 || null);
+
+    if (!email || !password) {
+      Alert.alert('Error', 'Enter email and password first.');
+      return;
+    }
+    try {
+      const check = await axios.post(`${BACKEND_URL}/api/check-user`, { email, passwordHash: password });
+      if (!check.data.exists) {
+        Alert.alert('Error', 'User does not exist. Please register or check your credentials.');
+        return;
+      }
+      if (!result.assets[0].base64) {
+        Alert.alert('Error', 'Photo could not be processed. Try again.');
+        return;
+      }
+      await axios.post(`${BACKEND_URL}/api/add-photo`, {
+        email,
+        photo: result.assets[0].base64,
+      });
+      Alert.alert('Success', 'Photo uploaded!');
+      setHasPhoto(true);
+      checkUser();
+    } catch (err) {
+      Alert.alert('Error', 'Could not upload photo.');
+    }
+  };
 
   const handleSubmit = async () => {
     if (!email || !password || (isRegister && !name)) {
@@ -35,19 +97,18 @@ export default function LoginScreen() {
         Alert.alert('Success', 'Account created! Please log in.');
         setIsRegister(false);
         setPassword('');
+        checkUser(); // <-- Add this line
       } else {
         setUser({ userId: response.data.userId, userName: response.data.userName });
-        router.replace('/ClockScreen'); // <-- Expo Router navigation
+        checkUser(); // <-- Add this line
+        router.replace('/ClockScreen');
       }
     } catch (err: any) {
       if (err.response) {
-        // Backend returned a response
         Alert.alert('Error', err.response.data.message || 'Server error');
       } else if (err.request) {
-        // Request was made but no response
         Alert.alert('Error', 'No response from server. Check your network.');
       } else {
-        // Something else
         Alert.alert('Error', err.message);
       }
       console.error(err);
@@ -84,7 +145,27 @@ export default function LoginScreen() {
         secureTextEntry
       />
 
-      <Button title={isRegister ? 'Sign Up' : 'Login'} onPress={handleSubmit} />
+      {/* Always show Add Photo button */}
+      {!isRegister && (
+        <Button title="Add Photo" onPress={handleAddPhoto} />
+      )}
+
+      {photo && (
+        <Image
+          source={{ uri: `data:image/jpeg;base64,${photo}` }}
+          style={{ width: 100, height: 100, marginVertical: 10, borderRadius: 8 }}
+        />
+      )}
+
+      <Button
+        title={isRegister ? 'Sign Up' : 'Login'}
+        onPress={handleSubmit}
+        disabled={
+          isRegister
+            ? !email || !password || !name
+            : !email || !password || !userExists || !hasPhoto
+        }
+      />
       <Button
         title={isRegister ? 'Back to Login' : 'Create Account'}
         onPress={() => setIsRegister(!isRegister)}
